@@ -6,9 +6,10 @@ uname_m="$(uname -m)"
 uname_r="$(uname -r)"
 uname_s="$(uname -s)"
 
-macos_amd64_bootstrap=1
+macos_x64_bootstrap=1
 macos_arm64_bootstrap=2
 macos_arm64=0
+linux_glibc_x64_bootstrap=3
 
 bootstrap=0
 languages="c,c++"
@@ -28,7 +29,7 @@ check_bootstrap() {
     Darwin)
       case "$gcc_ver" in
         "15.1.0")
-          hash="02758c6b60b6037633dc3b6950dabb6d8dd83f32e03a463010be76eb5f004c1a"
+          hash="68ae85afa64975f92a5cce0cfec32ef805a067e614c4da932af663c14157d56d"
           ;;
       esac
       ;;
@@ -77,6 +78,8 @@ find_downloader() {
   if [ -z "$downloader" ] ; then
     fatal "You must install one of curl or wget"
   fi
+
+  printf "Using %s for downloads\n" "$downloader"
 }
 
 setup_build() {
@@ -112,6 +115,8 @@ setup_build() {
     fatal "You need GNU make"
   fi
 
+  printf "Using GNU make %s (%s) to build\n" "$make_ver" "$make_program"
+
   case "$uname_s" in
     Darwin)
       # Turn off Go on Darwin
@@ -138,11 +143,20 @@ setup_build() {
         macos_arm64=1
       fi
       ;;
+    FreeBSD|Linux)
+      # How many CPUs are online?
+      ncpu=$(getconf _NPROCESSORS_ONLN)
+      ;;
     *)
       # No idea what we are, assume just 1 CPU to be safe.
       ncpu=1
       ;;
   esac
+
+  # Cap ncpu at 8
+  if [ $ncpu -gt 8 ] ; then
+    ncpu=8
+  fi
 }
 
 get_prereqs() {
@@ -157,7 +171,7 @@ get_prereqs() {
 
 find_bootstrap() {
   case "$uname_s" in
-    "Darwin")
+    Darwin)
       # We have bootstraps going back to 12.7.6 on amd64 (darwin21.6.0)
       # We have bootstraps going back to 15.6 on arm64 (darwin24.6.0)
       major=$(echo $uname_r | awk -F '.' '{print $1}')
@@ -166,10 +180,10 @@ find_bootstrap() {
         if [ $major -eq 21 ] ; then
           minor=$(echo $uname_r | awk -F '.' '{print $2}')
           if [ $minor -ge 6 ] ; then
-            return $macos_amd64_bootstrap
+            return $macos_x64_bootstrap
           fi
         elif [ $major -gt 21 ] ; then
-          return $macos_amd64_bootstrap
+          return $macos_x64_bootstrap
         fi
       elif [ "$uname_m" = "arm64" ] ; then
         if [ $major -eq 24 ] ; then
@@ -181,6 +195,12 @@ find_bootstrap() {
         fi
       fi
     ;;
+    Linux)
+      # We have bootstraps for glibc x64
+      # How to disambiguate for musl?
+      if [ "$uname_m" = "x86_64" ] ; then
+        return $linux_glibc_x64
+      fi
   esac
 
   fatal "Sorry, no bootstrap available. Please make a pull request."
@@ -210,7 +230,7 @@ for opt ; do
       languages="${languages},fortran"
       ;;
     --with-go)
-      languages="${languages},fortran"
+      languages="${languages},go"
       ;;
     --with-m2)
       languages="${languages},m2"
@@ -236,23 +256,6 @@ for opt ; do
   esac
 done
 
-find_downloader
-
-if [ $bootstrap -gt 0 ] ; then
-  case $bootstrap in
-    1)
-      bootstrap_url=""
-      ;;
-    2)
-      bootstrap_url=""
-      ;;
-    *)
-      fatal "Unknown bootstrap"
-      ;;
-  esac
-  printf "Found bootstrap: %s\n" $bootstrap_url
-fi
-
 if [ -z $gcc_ver ] ; then
   fatal "Must specify gcc version number"
 fi
@@ -261,25 +264,42 @@ if [ -z $installdir ] ; then
   fatal "Must specify gcc installation directory"
 fi
 
-setup_build
-
 printf "Cleaning... "
-
 rm -rf "$(pwd)/gcc-$gcc_ver"
 mkdir -p "$(pwd)/gcc-$gcc_ver"
 cd "$(pwd)/gcc-$gcc_ver"
-
 echo "done"
 
-if [ $bootstrap -ne 0 ] ; then
-  printf "Downloading bootstrap"
+find_downloader
+setup_build
+
+if [ $bootstrap -gt 0 ] ; then
+  bootstrap_url="https://github.com/ibara/gcc-bootstrap/releases/download/binaries"
+  case $bootstrap in
+    $macos_x64_bootstrap)
+      bootstrap_url="${bootstrap_url}/macos-x64.tar.gz"
+      ;;
+    $macos_arm64_bootstrap)
+      bootstrap_url="${bootstrap_url}/macos-arm64.tar.gz"
+      ;;
+    $linux_glibc_x64_bootstrap)
+      bootstrap_url="${bootstrap_url}/linux-glibc-x64.tar.gz"
+      ;;
+    *)
+      fatal "Unknown bootstrap"
+      ;;
+  esac
+
+  printf "Downloading %s\n" "$bootstrap_url"
   $downloader $bootstrap_url
 
-  check_sha256 "$(sha256sum $(basename $bootstrap_url))"
+  check_bootstrap "$(sha256sum $(basename $bootstrap_url) | awk '{print $1}')"
 
   printf "Untarring... "
   tar xzf $(basename $bootstrap_url)
   echo "done"
+
+  export PATH="$(pwd)/bootstrap/usr/bin:$PATH"
 fi
 
 url="https://ftpmirror.gnu.org/gnu/gcc/gcc-$gcc_ver/gcc-$gcc_ver.tar.gz"
@@ -319,12 +339,10 @@ rm -rf "$(pwd)/build-gcc-$gcc_ver"
 mkdir -p "$(pwd)/build-gcc-$gcc_ver"
 cd "$(pwd)/build-gcc-$gcc_ver"
 
-#configure_invocation="$(pwd)/../gcc-$gcc_ver/configure --prefix=$installdir --enable-languages=$languages $extra $user_extra"
-configure_invocation="../gcc-$gcc_ver/configure --enable-languages=$languages $extra $user_extra"
+configure_invocation="$(pwd)/../gcc-$gcc_ver/configure --prefix=$installdir --enable-languages=$languages $extra $user_extra"
 echo "$configure_invocation"
 
-#"$(pwd)/../gcc-$gcc_ver/configure" --prefix=$installdir --enable-languages=$languages $extra $user_extra
-"../gcc-$gcc_ver/configure" --enable-languages=$languages $extra $user_extra
+"$(pwd)/../gcc-$gcc_ver/configure" --prefix=$installdir --enable-languages=$languages $extra $user_extra
 
 echo "$make_program V=1 -j$ncpu"
 $make_program V=1 -j$ncpu
@@ -337,7 +355,7 @@ if [ $? -eq 0 ] ; then
   cd "$(pwd)/../fake-gcc-$gcc_ver"
   base="$(ls -1)"
   tar -cz -f gcc-$gcc_ver.tar.gz "$base"
-  #sudo tar xzf gcc-$gcc_ver.tar.gz -C /
+  sudo tar xzf gcc-$gcc_ver.tar.gz -C /
   printf "Installed gcc-%s to %s\n" "$gcc_ver" "$installdir"
 else
   fatal "GCC build failed"
