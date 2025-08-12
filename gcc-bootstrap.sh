@@ -29,10 +29,37 @@ check_bootstrap() {
     Darwin)
       case "$gcc_ver" in
         "15.1.0")
-          hash="68ae85afa64975f92a5cce0cfec32ef805a067e614c4da932af663c14157d56d"
+          if [ "$uname_m" = "arm64" ] ; then
+            hash="68ae85afa64975f92a5cce0cfec32ef805a067e614c4da932af663c14157d56d"
+          else
+            fatal "No 15.1.0 bootstrap for macOS x64 (try 15.2.0)"
+          fi
+          ;;
+        "15.2.0")
+          if [ "$uname_m" = "x86_64" ] ; then
+            hash="963df27ac7ad8acc70596f59ffd77bcd51f944f6f5e1b6a5f189f9baafc089b9"
+          else
+            fatal "No 15.2.0 bootstrap for macOS arm64 (try 15.1.0)"
+          fi
+          ;;
+        *)
+          fatal "Unknown macOS bootstrap version"
           ;;
       esac
       ;;
+    Linux)
+      case "$gcc_ver" in
+        "15.2.0")
+          if [ "$uname_m" = "x86_64" ] ; then
+            hash="27f0753556771c442390edfd1077bf8ab244ad9d448114c61cf30a7dcc4666db"
+          else
+            fatal "Unknown Linux arch for 15.2.0 bootstrap"
+          fi
+          ;;
+        *)
+          fatal "Unknown Linux bootstrap version"
+          ;;
+      esac
   esac
 
   if [ "$check" != "$hash" ] ; then
@@ -199,7 +226,7 @@ find_bootstrap() {
       # We have bootstraps for glibc x64
       # How to disambiguate for musl?
       if [ "$uname_m" = "x86_64" ] ; then
-        return $linux_glibc_x64
+        return $linux_glibc_x64_bootstrap
       fi
   esac
 
