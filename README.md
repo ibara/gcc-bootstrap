@@ -30,9 +30,9 @@ configure script.
 
 For example, to build GDC 15.1.0 on macOS when you don't already have
 GDC installed on your system, and you want to install it to
-`/opt/gcc`, you would run:
+`/opt/gnu`, you would run:
 ```sh
-$ ./gcc-bootstrap.sh --bootstrap --with-d 15.1.0 /opt/gcc
+$ ./gcc-bootstrap.sh --bootstrap --with-d 15.1.0 /opt/gnu
 ```
 
 License
