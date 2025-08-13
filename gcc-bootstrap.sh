@@ -324,6 +324,8 @@ if [ $bootstrap -gt 0 ] ; then
 
   printf "Untarring... "
   tar xzf $(basename $bootstrap_url)
+  hostmachine="$($(pwd)/bootstrap/usr/bin/gcc -dumpmachine)"
+  rm -rf "$(pwd)/bootstrap/usr/lib/gcc/$hostmachine/$gcc_ver/include-fixed"
   echo "done"
 
   export PATH="$(pwd)/bootstrap/usr/bin:$PATH"
