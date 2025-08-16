@@ -24,16 +24,35 @@
 
 extern char **environ;
 
+/*
+ * More GNU as-compatible frontend for Clang as.
+ * For systems that don't ship GNU as but ship Clang, like FreeBSD.
+ */
+
+static bool
+is_input(const char *s)
+{
+
+	if (!strcmp("-o", s))
+		return false;
+
+	if (!strcmp("-target", s))
+		return false;
+
+	return true;
+}
+
 int
 main(int argc, char *argv[])
 {
 	char **av;
+	size_t sz;
 	pid_t pid;
 	int i, status;
 	bool have_input = false, have_output = false;
 
 	/*
-	 * `as' becomes `cc -c -x assembler'
+	 * `as' becomes `clang -c -x assembler'
 	 * In other words, add 3 to argc.
 	 *
 	 * If no output file, we need to add another 2 to argc.
@@ -47,10 +66,11 @@ main(int argc, char *argv[])
 	 * Total additional potential args = 7
 	 */
 
-	if ((av = reallocarray(NULL, argc + 7, sizeof(char *))) == NULL)
-		err(1, "reallocarray failed");
+	sz = (argc + 7) * sizeof(char *);
+	if ((av = malloc(sz)) == NULL)
+		err(1, "malloc failed");
 
-	av[0] = "/usr/bin/cc";
+	av[0] = "/usr/bin/clang";
 	av[1] = "-c";
 	av[2] = "-x";
 	av[3] = "assembler";
@@ -62,9 +82,8 @@ main(int argc, char *argv[])
 			have_output = true;
 
 		if (strncmp(argv[i], "-", 1) != 0) {
-			if (!strcmp(argv[i - 1], "-o"))
-				continue;
-			have_input = true;
+			if (is_input(argv[i - 1]))
+				have_input = true;
 		}
 	}
 
@@ -85,13 +104,18 @@ main(int argc, char *argv[])
 
 	switch ((pid = fork())) {
 	case -1:
+		free(av);
+		av = NULL;
 		err(1, "fork failed");
 	case 0:
 		execve(av[0], av, environ);
 		_exit(127);
 	default:
-		if (waitpid(pid, &status, 0) == -1)
-			err(1, "waitpid");
+		if (waitpid(pid, &status, 0) == -1) {
+			free(av);
+			av = NULL;
+			err(1, "waitpid failed");
+		}
 	}
 
 	i = WIFEXITED(status) ? WEXITSTATUS(status) : 1;
