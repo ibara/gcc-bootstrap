@@ -2,6 +2,8 @@ gcc-bootstrap
 =============
 A simple to use shell script to bootstrap niche GCC languages on your
 machine, such as
+[Ada](https://en.wikipedia.org/wiki/Ada_%28programming_language%29)
+and
 [D](https://dlang.org/).
 
 Usage

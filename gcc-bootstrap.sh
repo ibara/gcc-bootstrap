@@ -20,10 +20,12 @@ uname_m="$(uname -m)"
 uname_r="$(uname -r)"
 uname_s="$(uname -s)"
 
+need_patch=0
+
 macos_x64_bootstrap=1
 macos_arm64_bootstrap=2
-macos_arm64=0
 linux_glibc_x64_bootstrap=3
+illumos_x64_bootstrap=4
 
 bootstrap=0
 languages="c,c++"
@@ -32,6 +34,10 @@ full=0
 fatal() {
   printf "error: %s\n" "$1"
   exit 1
+}
+
+warning() {
+  printf "warning: %s\n" "$1"
 }
 
 check_bootstrap() {
@@ -74,6 +80,12 @@ check_bootstrap() {
           fatal "Unknown Linux bootstrap version"
           ;;
       esac
+      ;;
+    SunOS)
+      uname_o="$(uname -o)"
+      if [ "$uname_o" != "illumos" ] ; then
+        fatal "Only supports illumos right now"
+      fi
   esac
 
   if [ "$check" != "$hash" ] ; then
@@ -172,7 +184,7 @@ setup_build() {
       if [ "$uname_m" = "arm64" ] ; then
         # Darwin/arm64 support not fully upstreamed to GCC yet...
         if [ "$gcc_ver" != "15.1.0" ] ; then
-          echo "warning: Setting GCC version to 15.1.0"
+          warning "Setting GCC version to 15.1.0"
           gcc_ver="15.1.0"
         fi
         # We need GNU patch to apply diff
@@ -181,12 +193,27 @@ setup_build() {
           fatal "You need GNU patch on arm64 macOS"
         fi
         patch="$(command -v gpatch)"
-        macos_arm64=1
+        need_patch=1
       fi
       ;;
     FreeBSD|Linux)
       # How many CPUs are online?
       ncpu=$(getconf _NPROCESSORS_ONLN)
+      ;;
+    SunOS)
+      # How many CPUs are online?
+      # illumos calls this NPROCESSORS_ONLN instead of _NPROCESSORS_ONLN
+      ncpu=$(getconf NPROCESSORS_ONLN)
+
+      if [ "$gcc_ver" = "15.2.0" ] ; then
+        # We need GNU patch to apply diff
+        command -v gpatch > /dev/null 2>&1
+        if [ $? -ne 0 ] ; then
+          fatal "You need GNU patch on illumos"
+        fi
+        patch="$(command -v gpatch)"
+        need_patch=1
+      fi
       ;;
     *)
       # No idea what we are, assume just 1 CPU to be safe.
@@ -194,7 +221,7 @@ setup_build() {
       ;;
   esac
 
-  # Cap ncpu at 8
+  # Cap ncpu at 8 (intermittent GNU make errors if greater?)
   if [ $ncpu -gt 8 ] ; then
     ncpu=8
   fi
@@ -242,9 +269,73 @@ find_bootstrap() {
       if [ "$uname_m" = "x86_64" ] ; then
         return $linux_glibc_x64_bootstrap
       fi
+      ;;
+    SunOS)
+      uname_o="$(uname -o)"
+      if [ "$uname_o" != "illumos" ] ; then
+        fatal "Only supports illumos for now"
+      fi
+
+      # I have no idea how to programmatically determine x64 or x86
+      # But every illumos should have /bin/bash...
+      file /bin/bash | grep AMD64
+      if [ $? -ne 0 ] ; then
+        fatal "Only supports x64 for now"
+      fi
+
+      return $illumos_x64_bootstrap
+      ;;
   esac
 
   fatal "Sorry, no bootstrap available. Please make a pull request."
+}
+
+download_bootstrap() {
+  bootstrap_url="https://github.com/ibara/gcc-bootstrap/releases/download/binaries"
+  case $bootstrap in
+    $macos_x64_bootstrap)
+      bootstrap_url="${bootstrap_url}/macos-x64.tar.gz"
+      ;;
+    $macos_arm64_bootstrap)
+      bootstrap_url="${bootstrap_url}/macos-arm64.tar.gz"
+      ;;
+    $linux_glibc_x64_bootstrap)
+      bootstrap_url="${bootstrap_url}/linux-glibc-x64.tar.gz"
+      ;;
+    $illumos_x64_bootstrap)
+      bootstrap_url="${bootstrap_url}/illumos-x64.tar.gz"
+      ;;
+    *)
+      fatal "Unknown bootstrap"
+      ;;
+  esac
+
+  printf "Downloading %s\n" "$bootstrap_url"
+  $downloader $bootstrap_url
+
+  check_bootstrap "$(sha256sum $(basename $bootstrap_url) | awk '{print $1}')"
+
+  printf "Untarring... "
+  tar xzf $(basename $bootstrap_url)
+  if [ "$uname_o" = "illumos" ] ; then
+    mv "$(pwd)/bootstrap/opt/gnu" "$(pwd)/bootstrap/usr"
+    rm -rf "$(pwd)/bootstrap/opt"
+  fi
+  hostmachine="$($(pwd)/bootstrap/usr/bin/gcc -dumpmachine)"
+  rm -rf "$(pwd)/bootstrap/usr/lib/gcc/$hostmachine/$gcc_ver/include-fixed"
+  echo "done"
+}
+
+install_and_quit() {
+  download_bootstrap
+  cd "$(pwd)/bootstrap"
+  mkdir -p "$(dirname ./$installdir)"
+  mv usr "$(dirname ./$installdir)/$(basename $installdir)"
+  tar -cz -f gcc-$gcc_ver-direct-install.tar.gz "$(ls -1)"
+  sudo tar xzf gcc-$gcc_ver-direct-install.tar.gz -C /
+  printf "Installed gcc-%s to %s\n" "$gcc_ver" "$installdir"
+
+  exit 0
 }
 
 for opt ; do
@@ -253,6 +344,11 @@ for opt ; do
       # Determine if we have a bootstrap to offer...
       find_bootstrap
       bootstrap=$?
+      ;;
+    --install-binaries)
+      # Don't build anything, just install the bootstrap compiler
+      find_bootstrap
+      install_and_quit
       ;;
     --full)
       languages="all"
@@ -271,7 +367,11 @@ for opt ; do
       languages="${languages},fortran"
       ;;
     --with-go)
-      languages="${languages},go"
+      if [ "$uname_s" = "Darwin" ] ; then
+        warning "Go not buildable on macOS, disabling"
+      else
+        languages="${languages},go"
+      fi
       ;;
     --with-m2)
       languages="${languages},m2"
@@ -294,6 +394,7 @@ for opt ; do
       else
         fatal $usage
       fi
+      ;;
   esac
 done
 
@@ -315,33 +416,7 @@ find_downloader
 setup_build
 
 if [ $bootstrap -gt 0 ] ; then
-  bootstrap_url="https://github.com/ibara/gcc-bootstrap/releases/download/binaries"
-  case $bootstrap in
-    $macos_x64_bootstrap)
-      bootstrap_url="${bootstrap_url}/macos-x64.tar.gz"
-      ;;
-    $macos_arm64_bootstrap)
-      bootstrap_url="${bootstrap_url}/macos-arm64.tar.gz"
-      ;;
-    $linux_glibc_x64_bootstrap)
-      bootstrap_url="${bootstrap_url}/linux-glibc-x64.tar.gz"
-      ;;
-    *)
-      fatal "Unknown bootstrap"
-      ;;
-  esac
-
-  printf "Downloading %s\n" "$bootstrap_url"
-  $downloader $bootstrap_url
-
-  check_bootstrap "$(sha256sum $(basename $bootstrap_url) | awk '{print $1}')"
-
-  printf "Untarring... "
-  tar xzf $(basename $bootstrap_url)
-  hostmachine="$($(pwd)/bootstrap/usr/bin/gcc -dumpmachine)"
-  rm -rf "$(pwd)/bootstrap/usr/lib/gcc/$hostmachine/$gcc_ver/include-fixed"
-  echo "done"
-
+  download_bootstrap
   export PATH="$(pwd)/bootstrap/usr/bin:$PATH"
 fi
 
@@ -356,20 +431,27 @@ printf "Untarring... "
 tar xzf gcc-$gcc_ver.tar.gz
 echo "done"
 
-if [ $macos_arm64 -eq 1 ] ; then
+if [ $need_patch -eq 1 ] ; then
   original="$(pwd)"
   cd "$(pwd)/gcc-$gcc_ver"
-  patch_url="https://raw.githubusercontent.com/Homebrew/formula-patches/575ffcaed6d3112916fed77d271dd3799a7255c4/gcc/gcc-15.1.0.diff"
+  patch_url="https://raw.githubusercontent.com/ibara/gcc-bootstrap/regs/heads/main/patches/$uname_s-$uname_m-$gcc_ver.diff"
   $downloader $patch_url
-
   printf "SHA256 check... "
   check="$(sha256sum $(basename $patch_url) | awk '{print $1}')"
-  hash="360fba75cd3ab840c2cd3b04207f745c418df44502298ab156db81d41edf3594"
+
+  case "$uname_s-$uname_m-$gcc_ver" in
+    Darwin-arm64-15.1.0)
+      hash="360fba75cd3ab840c2cd3b04207f745c418df44502298ab156db81d41edf3594"
+      ;;
+    SunOS-i86pc-15.2.0)
+      hash="4ff8f10c7d88c63186ef95efd1c7a206616961e86160761b433dc32ca3f1d048"
+      ;;
+  esac
+
   if [ "$check" != "$hash" ] ; then
     fatal "Hash mismatch"
   fi
   echo "ok"
-
   patch_file="$(basename $patch_url)"
   $patch -p1 <$patch_file
   cd "$original"
