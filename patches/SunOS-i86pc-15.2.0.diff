@@ -1,0 +1,26 @@
+diff --git a/c++tools/Makefile.in b/c++tools/Makefile.in
+index 5acc6d681..778885984 100644
+--- a/c++tools/Makefile.in
++++ b/c++tools/Makefile.in
+@@ -98,7 +98,7 @@ MAPPER.O := server.o resolver.o
+ CODYLIB = ../libcody/libcody.a
+ CXXINC += -I$(srcdir)/../libcody -I$(srcdir)/../include -I$(srcdir)/../gcc -I. -I../gcc
+ g++-mapper-server$(exeext): $(MAPPER.O) $(CODYLIB)
+-	+$(CXX) $(LDFLAGS) $(PICFLAG) $(LD_PICFLAG) -o $@ $^ $(LIBIBERTY)
++	+$(CXX) $(LDFLAGS) $(PICFLAG) $(LD_PICFLAG) -o $@ $^ $(LIBIBERTY) -lxnet -lsocket -lnsl -lmp -lmd
+ 
+ # copy to gcc dir so tests there can run
+ all::../gcc/g++-mapper-server$(exeext)
+diff --git a/gcc/Makefile.in b/gcc/Makefile.in
+index 55b4cd7db..74fc32125 100644
+--- a/gcc/Makefile.in
++++ b/gcc/Makefile.in
+@@ -1152,7 +1152,7 @@ BUILD_LIBDEPS= $(BUILD_LIBIBERTY)
+ LIBS = @LIBS@ libcommon.a $(CPPLIB) $(LIBINTL) $(LIBICONV) $(LIBBACKTRACE) \
+ 	$(LIBIBERTY) $(LIBDECNUMBER) $(HOST_LIBS)
+ BACKENDLIBS = $(ISLLIBS) $(GMPLIBS) $(PLUGINLIBS) $(HOST_LIBS) \
+-	$(ZLIB) $(ZSTD_LIB)
++	$(ZLIB) $(ZSTD_LIB) -lxnet
+ # Any system libraries needed just for GNAT.
+ SYSLIBS = @GNAT_LIBEXC@
+ 
