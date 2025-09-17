@@ -434,7 +434,8 @@ echo "done"
 if [ $need_patch -eq 1 ] ; then
   original="$(pwd)"
   cd "$(pwd)/gcc-$gcc_ver"
-  patch_url="https://raw.githubusercontent.com/ibara/gcc-bootstrap/regs/heads/main/patches/$uname_s-$uname_m-$gcc_ver.diff"
+  patch_url="https://raw.githubusercontent.com/ibara/gcc-bootstrap/refs/heads/main/patches/$uname_s-$uname_m-$gcc_ver.diff"
+  printf "Downloading %s\n" $patch_url
   $downloader $patch_url
   printf "SHA256 check... "
   check="$(sha256sum $(basename $patch_url) | awk '{print $1}')"
@@ -464,10 +465,10 @@ rm -rf "$(pwd)/build-gcc-$gcc_ver"
 mkdir -p "$(pwd)/build-gcc-$gcc_ver"
 cd "$(pwd)/build-gcc-$gcc_ver"
 
-configure_invocation="$(pwd)/../gcc-$gcc_ver/configure --prefix=$installdir --enable-languages=$languages $extra $user_extra"
+configure_invocation="../gcc-$gcc_ver/configure --prefix=$installdir --enable-languages=$languages $extra $user_extra"
 echo "$configure_invocation"
 
-"$(pwd)/../gcc-$gcc_ver/configure" --prefix=$installdir --enable-languages=$languages $extra $user_extra
+"../gcc-$gcc_ver/configure" --prefix=$installdir --enable-languages=$languages $extra $user_extra
 
 echo "$make_program V=1 -j$ncpu"
 $make_program V=1 -j$ncpu
@@ -480,6 +481,7 @@ if [ $? -eq 0 ] ; then
   cd "$(pwd)/../fake-gcc-$gcc_ver"
   base="$(ls -1)"
   tar -cz -f gcc-$gcc_ver.tar.gz "$base"
+  sudo rm -rf $installdir
   sudo tar xzf gcc-$gcc_ver.tar.gz -C /
   printf "Installed gcc-%s to %s\n" "$gcc_ver" "$installdir"
 else

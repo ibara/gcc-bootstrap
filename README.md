@@ -37,6 +37,32 @@ GDC installed on your system, and you want to install it to
 $ ./gcc-bootstrap.sh --bootstrap --with-d 15.1.0 /opt/gnu
 ```
 
+Notes
+-----
+* If you are using FreeBSD, you might consider compiling and installing
+the `as.c` wrapper prior to building GCC:
+```sh
+$ cc -O2 -o as as.c
+$ sudo install -c -s -o root -g wheel -m 755 as /usr/bin/as
+```
+This wrapper allows `clang` to act more like GNU `as`, notably allowing
+for omitting the input file entirely (assumes `stdin` in that case).
+This will allow you to build and install GCC without needing to install
+the GNU `binutils` package.
+* If you are crossing the macOS Sequoia (15.x) to Tahoe (26.x) barrier,
+and installing GCC 15 or earlier, you will need to build and install
+the `as-darwin.c` wrapper. Assuming you will install GCC to `/opt/gnu`,
+the following commands will work:
+```sh
+$ cc -O2 -o as as-darwin.c
+$ sudo mkdir -p /opt/gnu/bin
+$ sudo install -c -s -m 755 as /opt/gnu/bin/as
+```
+You then must add the `--with-as=/opt/gnu/bin/as` flag to your GCC
+configure script invocation. Failure to do this will result in Ada and
+D configure failing. You will need to re-install this `as` wrapper
+after GCC installs.
+
 License
 -------
 ISC License. See `LICENSE` for more information.
