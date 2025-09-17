@@ -25,28 +25,16 @@
 extern char **environ;
 
 /*
- * More GNU as-compatible frontend for Clang as.
+ * GNU as-compatible frontend for Clang as.
  * For systems that don't ship GNU as but ship Clang, like FreeBSD.
+ * Most notably, allows for omission of input file entirely;
+ * assumes stdin in that situation.
  */
-
-static bool
-is_input(const char *s)
-{
-
-	if (!strcmp("-o", s))
-		return false;
-
-	if (!strcmp("-target", s))
-		return false;
-
-	return true;
-}
 
 int
 main(int argc, char *argv[])
 {
 	char **av;
-	size_t sz;
 	pid_t pid;
 	int i, status;
 	bool have_input = false, have_output = false;
@@ -66,8 +54,7 @@ main(int argc, char *argv[])
 	 * Total additional potential args = 7
 	 */
 
-	sz = (argc + 7) * sizeof(char *);
-	if ((av = malloc(sz)) == NULL)
+	if ((av = malloc((argc + 7) * sizeof(char *))) == NULL)
 		err(1, "malloc failed");
 
 	av[0] = "/usr/bin/clang";
@@ -76,31 +63,36 @@ main(int argc, char *argv[])
 	av[3] = "assembler";
 
 	for (i = 1; i < argc; ++i) {
-		av[3 + i] = argv[i];
+		av[i + 3] = argv[i];
 
-		if (!strncmp(argv[i], "-o", 2))
+		if (!strncmp(argv[i], "-o", 2)) {
 			have_output = true;
-
-		if (strncmp(argv[i], "-", 1) != 0) {
-			if (is_input(argv[i - 1]))
-				have_input = true;
+			continue;
 		}
+
+		if (argv[i][0] == '-') {
+			if (!strcmp(argv[i], "-"))
+				have_input = true;
+			continue;
+		}
+
+		have_input = true;
 	}
 
 	if (!have_output) {
-		av[3 + i] = "-o";
+		av[i + 3] = "-o";
 		++i;
 
-		av[3 + i] = "a.out";
+		av[i + 3] = "a.out";
 		++i;
 	}
 
 	if (!have_input) {
-		av[3 + i] = "-";
+		av[i + 3] = "-";
 		++i;
 	}
 
-	av[3 + i] = NULL;
+	av[i + 3] = NULL;
 
 	switch ((pid = fork())) {
 	case -1:
