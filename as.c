@@ -17,19 +17,10 @@
 #include <sys/wait.h>
 
 #include <err.h>
-#include <stdbool.h>
 #include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 
 extern char **environ;
-
-/*
- * GNU as-compatible frontend for Clang as.
- * For systems that don't ship GNU as but ship Clang, like FreeBSD.
- * Most notably, allows for omission of input file entirely;
- * assumes stdin in that situation.
- */
 
 int
 main(int argc, char *argv[])
@@ -37,62 +28,39 @@ main(int argc, char *argv[])
 	char **av;
 	pid_t pid;
 	int i, status;
-	bool have_input = false, have_output = false;
 
-	/*
-	 * `as' becomes `clang -c -x assembler'
-	 * In other words, add 3 to argc.
-	 *
-	 * If no output file, we need to add another 2 to argc.
-	 * `-o' and `a.out'
-	 *
-	 * If no input file, we need to add another 1 to argc.
-	 * `-'
-	 *
-	 * Plus 1 for the final NULL in all cases.
-	 *
-	 * Total additional potential args = 7
-	 */
+#if defined(__APPLE__) && defined(__MACH__)
+	i = 2;
+#else
+	i = 4;
+#endif
 
-	if ((av = malloc((argc + 7) * sizeof(char *))) == NULL)
+	if ((av = malloc((argc + i) * sizeof(char *))) == NULL)
 		err(1, "malloc failed");
 
+#if defined(__APPLE__) && defined(__MACH__)
+	av[0] = "/usr/bin/as";
+#else
 	av[0] = "/usr/bin/clang";
 	av[1] = "-c";
 	av[2] = "-x";
 	av[3] = "assembler";
+#endif
 
 	for (i = 1; i < argc; ++i) {
+#if defined(__APPLE__) && defined(__MACH__)
+		av[i] = argv[i];
+#else
 		av[i + 3] = argv[i];
-
-		if (!strncmp(argv[i], "-o", 2)) {
-			have_output = true;
-			continue;
-		}
-
-		if (argv[i][0] == '-') {
-			if (!strcmp(argv[i], "-"))
-				have_input = true;
-			continue;
-		}
-
-		have_input = true;
+#endif
 	}
 
-	if (!have_output) {
-		av[i + 3] = "-o";
-		++i;
-
-		av[i + 3] = "a.out";
-		++i;
-	}
-
-	if (!have_input) {
-		av[i + 3] = "-";
-		++i;
-	}
-
+#if defined(__APPLE__) && defined(__MACH__)
+	av[i++] = "-Wno-overriding-deployment-version";
+	av[i] = NULL;
+#else
 	av[i + 3] = NULL;
+#endif
 
 	switch ((pid = fork())) {
 	case -1:
